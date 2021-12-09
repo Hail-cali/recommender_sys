@@ -316,8 +316,8 @@ def main(dataset_name, dataset_path, model_name, epoch, learning_rate,
 
     mu = torch.tensor(dataset.train_mu).to(device)
     std = torch.tensor(dataset.train_std).to(device)
-    max = dataset.train_max
-    min = dataset.train_min
+    max = np.max(dataset[train_dataset.indices][1])
+    min = np.min(dataset[train_dataset.indices][1])
     try:
         print(f'mu : {mu} std: {std}')
         print(f'max targets {max} min : {min}')
