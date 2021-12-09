@@ -49,9 +49,15 @@ class BookDataLoader(torch.utils.data.Dataset):
 
     def __preprocess_target(self, target):
         self.mu = np.mean(target)
-        # target[target <= 3] = 0
-        # target[target > 3] = 1
-        return target - self.mu
+
+        return target
+
+    def normalize_target(self, target):
+        self.train_mu = np.mean(target)
+        self.train_std = np.std(target)
+        self.train_max = np.max(target)
+        self.train_min = np.min(target)
+        return (self.targets - self.train_mu) / self.train_std
 
 
 class BookAddDataLoader(torch.utils.data.Dataset):
@@ -112,9 +118,18 @@ class BookAddDataLoader(torch.utils.data.Dataset):
 
     def __preprocess_target(self, target):
         self.mu = np.mean(target)
+        self.std = np.std(target)
         # target[target <= 3] = 0
         # target[target > 3] = 1
-        return target - self.mu
+        return target
+
+    def normalize_target(self, target):
+        self.train_mu = np.mean(target)
+        self.train_std = np.std(target)
+
+
+        return (self.targets - self.train_mu) / self.train_std
+
 
 class MovieDataLodaer(torch.utils.data.Dataset):
 
@@ -170,6 +185,9 @@ class RMSELoss(nn.Module):
         return torch.sqrt(self.mse(yhat, y))
 
 
+
+
+
 def get_dataset(dataset_name, path):
 
     if dataset_name == 'movielens1M':
@@ -190,7 +208,7 @@ def get_model(model_name, field_dims):
     elif model_name == 'afn':
         print("Model:AFN")
         return AdaptiveFactorizationNetwork(
-            field_dims, embed_dim=16, LNN_dim=1500, mlp_dims=(400, 400, 400), dropouts=(0, 0, 0))
+            field_dims, embed_dim=64, LNN_dim=40, mlp_dims=(16, 16, 16), dropouts=(0, 0, 0))
 
     elif model_name == 'xdfm':
         return ExtremeDeepFactorizationMachineModel(
@@ -204,7 +222,7 @@ def train(model, optimizer, data_loader, criterion, device, log_interval=100):
         fields, target = fields.to(device), target.to(device)
         y = model(fields)
         loss = criterion(y, target.float())
-        # loss = criterion(y, target.float())
+
 
         model.zero_grad()
         loss.backward()
@@ -216,19 +234,38 @@ def train(model, optimizer, data_loader, criterion, device, log_interval=100):
             total_loss = 0
 
 
-def test(model, data_loader, mu, device):
+def test(model, data_loader, min, max, device):
     model.eval()
     targets, predicts = list(), list()
+    alpha = 0.002
     rmse = RMSELoss()
 
     with torch.no_grad():
         for fields, target in tqdm.tqdm(data_loader, smoothing=0, mininterval=1.0):
             fields, target = fields.to(device), target.to(device)
             y = model(fields)
+
             targets.extend(target)
             predicts.extend(y)
 
-        print(torch.tensor(predicts).float())
+
+        for idx, pred in enumerate(predicts):
+            if pred > max + alpha:
+                predicts[idx] = torch.tensor(max).to(device)
+            if pred < min - alpha:
+                predicts[idx] = torch.tensor(min).to(device)
+
+        #     if pred > 2.3:
+        #         predicts[idx] = torch.tensor(2.21).to(device)
+        #
+        #     elif pred > 1.5:
+        #         predicts[idx] = pred + torch.tensor(0.1).to(device)
+        #
+        #     elif pred < -6.7:
+        #         predicts[idx] = torch.tensor(-6.6).to(device)
+
+        print(f'predicts: {torch.tensor(predicts).float()[:5]}')
+        print(f'targets: {torch.tensor(targets).float()[:5]}')
 
     return rmse(torch.tensor(predicts).float(), torch.tensor(targets).float())
 
@@ -246,7 +283,6 @@ def predict(model, data_loader, mu , device):
     return torch.tensor(predicts).float()
 
 
-
 def main(dataset_name, dataset_path, model_name, epoch, learning_rate,
          batch_size, weight_decay, gpu_num,save_dir):
 
@@ -260,8 +296,6 @@ def main(dataset_name, dataset_path, model_name, epoch, learning_rate,
     except RuntimeError:
         device = torch.device(f'cuda:{gpu_num}' if torch.cuda.is_available() else f'cpu')
 
-    # dataset = BookDataLodaer(d_path)
-    # dataset = MovieDataLodaer(path)
     dataset = get_dataset(dataset_name, dataset_path)
 
     field_dims = dataset.field_dims
@@ -278,9 +312,15 @@ def main(dataset_name, dataset_path, model_name, epoch, learning_rate,
         dataset, (train_length, test_length, valid_length, ))
 
 
-    mu = torch.tensor(dataset.mu).to(device)
+    dataset.targets = dataset.normalize_target(dataset[train_dataset.indices][1])
+
+    mu = torch.tensor(dataset.train_mu).to(device)
+    std = torch.tensor(dataset.train_std).to(device)
+    max = dataset.train_max
+    min = dataset.train_min
     try:
-        print(f'mu : {mu}')
+        print(f'mu : {mu} std: {std}')
+        print(f'max targets {max} min : {min}')
 
     except:
         print()
@@ -289,27 +329,22 @@ def main(dataset_name, dataset_path, model_name, epoch, learning_rate,
     valid_data_loader = DataLoader(valid_dataset, batch_size=batch_size, num_workers=8)
     test_data_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=8)
 
-
-    # model = NeuralFactorizationMachineModel(field_dims, embed_dim=64, mlp_dims=(64,), dropouts=(0.2, 0.2))
-    # model = WideAndDeepModel(field_dims, embed_dim=16, mlp_dims=(16, 16), dropout=0.2)
-
     model = get_model(model_name, field_dims)
     print(f'model name: {model_name}')
     model.to(device)
 
-    # criterion = torch.nn.BCELoss()
     criterion = RMSELoss()
-    # criterion = torch.nn.MSELoss()
 
     optimizer = torch.optim.Adam(params=model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     early_stopper = EarlyStopper(num_trials=2, save_path=f'{save_dir}/{model_name}.pt')
 
     for epoch_i in range(epoch):
         train(model, optimizer, train_data_loader, criterion, device)
-        rmse = test(model, test_data_loader, mu, device)
+        rmse = test(model, test_data_loader, min, max, device)
         print('epoch:', epoch_i, 'test: rmse:', rmse)
         if not early_stopper.is_continuable(model, rmse):
             print(f'test: best rmse: {early_stopper.best_rmse}')
+
             break
 
     # rmse = test(model, test_data_loader, mu, device)
@@ -319,7 +354,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_name', default= 'bookadd',
+    parser.add_argument('--dataset_name', default='bookadd',
                         help=' movielens1M | book | bookadd ')
 
     parser.add_argument('--dataset_path', default='book_review/total.csv',
@@ -328,7 +363,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', default='xdfm')
     parser.add_argument('--epoch', type=int, default=10)
     parser.add_argument('--learning_rate', type=float, default=0.001)
-    parser.add_argument('--batch_size', type=int, default=1028)
+    parser.add_argument('--batch_size', type=int, default=30)
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     parser.add_argument('--device_num', type=str, default=1)
     parser.add_argument('--save_dir', default='chkpt')

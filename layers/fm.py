@@ -56,6 +56,7 @@ class MultiLayerPerceptron(torch.nn.Module):
         """
         return self.mlp(x)
 
+
 class CompressedInteractionNetwork(torch.nn.Module):
 
     def __init__(self, input_dim, cross_layer_sizes, split_half=True):
@@ -67,7 +68,7 @@ class CompressedInteractionNetwork(torch.nn.Module):
         for i in range(self.num_layers):
             cross_layer_size = cross_layer_sizes[i]
             self.conv_layers.append(torch.nn.Conv1d(input_dim * prev_dim, cross_layer_size, 1,
-                                                    stride=1, dilation=1, bias=True))
+                                                    stride=1,  dilation=1, bias=True))
             if self.split_half and i != self.num_layers - 1:
                 cross_layer_size //= 2
             prev_dim = cross_layer_size
@@ -84,7 +85,7 @@ class CompressedInteractionNetwork(torch.nn.Module):
             x = x0 * h.unsqueeze(1)
             batch_size, f0_dim, fin_dim, embed_dim = x.shape
             x = x.view(batch_size, f0_dim * fin_dim, embed_dim)
-            x = F.relu(self.conv_layers[i](x))
+            x = F.celu(self.conv_layers[i](x))
             if self.split_half and i != self.num_layers - 1:
                 x, h = torch.split(x, x.shape[1] // 2, dim=1)
             else:

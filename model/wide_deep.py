@@ -130,4 +130,5 @@ class ExtremeDeepFactorizationMachineModel(torch.nn.Module):
         """
         embed_x = self.embedding(x)
         x = self.linear(x) + self.cin(embed_x) + self.mlp(embed_x.view(-1, self.embed_output_dim))
-        return torch.relu(x.squeeze(1))
+        # return torch.relu(x.squeeze(1))
+        return torch.celu(x.squeeze(1))
