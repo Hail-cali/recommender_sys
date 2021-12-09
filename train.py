@@ -1,10 +1,7 @@
 import pandas as pd
-import torch
 import numpy as np
 import torch.nn as nn
 from model.wide_deep import *
-
-# from torchfm.dataset.movielens import MovieLens1MDataset
 from torch.utils.data import DataLoader
 import tqdm
 from collections import OrderedDict
@@ -131,30 +128,6 @@ class BookAddDataLoader(torch.utils.data.Dataset):
         return (self.targets - self.train_mu) / self.train_std
 
 
-class MovieDataLodaer(torch.utils.data.Dataset):
-
-    def __init__(self, dataset_path, sep='::', engine='python', header=None):
-        data = pd.read_csv(dataset_path, sep=sep, engine=engine, header=header).to_numpy()[:, :3]
-        self.items = data[:, :2].astype(np.int) - 1  # -1 because ID begins from 1
-        self.targets = self.__preprocess_target(data[:, 2]).astype(np.float32)
-        self.field_dims = np.max(self.items, axis=0) + 1
-        self.user_field_idx = np.array((0, ), dtype=np.long)
-        self.item_field_idx = np.array((1,), dtype=np.long)
-
-    def __len__(self):
-        return self.targets.shape[0]
-
-    def __getitem__(self, index):
-        return self.items[index], self.targets[index]
-
-    def __preprocess_target(self, target):
-        self.mu = np.mean(target)
-        # target[target <= 3] = 0
-        # target[target > 3] = 1
-        return target - self.mu
-
-
-
 class EarlyStopper(object):
 
     def __init__(self, num_trials, save_path):
@@ -185,15 +158,9 @@ class RMSELoss(nn.Module):
         return torch.sqrt(self.mse(yhat, y))
 
 
-
-
-
 def get_dataset(dataset_name, path):
 
-    if dataset_name == 'movielens1M':
-
-        return MovieDataLodaer(path)
-    elif dataset_name == 'book':
+    if dataset_name == 'book':
 
         return BookDataLoader(path)
 
@@ -202,15 +169,7 @@ def get_dataset(dataset_name, path):
 
 
 def get_model(model_name, field_dims):
-    if model_name == 'wd':
-        return WideAndDeepModel(field_dims, embed_dim=32, mlp_dims=(16, 16), dropout=0.1)
-
-    elif model_name == 'afn':
-        print("Model:AFN")
-        return AdaptiveFactorizationNetwork(
-            field_dims, embed_dim=64, LNN_dim=40, mlp_dims=(16, 16, 16), dropouts=(0, 0, 0))
-
-    elif model_name == 'xdfm':
+    if model_name == 'xdfm':
         return ExtremeDeepFactorizationMachineModel(
             field_dims, embed_dim=64, cross_layer_sizes=(8, 8), split_half=False, mlp_dims=(8, 8), dropout=0.2)
 
@@ -362,10 +321,10 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_name', default='bookadd',
-                        help=' movielens1M | book | bookadd ')
+                        help=' book | bookadd ')
 
     parser.add_argument('--dataset_path', default='book_review/total.csv',
-                        help=' ml-1m/ratings.dat  |  book_review/BX-Book-Ratings.csv | book_review/total.csv ')
+                        help=' book_review/BX-Book-Ratings.csv | book_review/total.csv ')
 
     parser.add_argument('--model_name', default='xdfm')
     parser.add_argument('--epoch', type=int, default=10)
